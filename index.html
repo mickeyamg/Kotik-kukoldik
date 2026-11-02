@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#17151d">
+<title>Котик Куколдик</title>
+<style>
+:root{--gold:#f3c878;--ink:#211c28;--cream:#fff0d6;--red:#d65a4d;--green:#9ccf8a}
+*{box-sizing:border-box} html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#17151d;color:var(--cream);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;touch-action:manipulation}
+body{display:flex;align-items:center;justify-content:center;background:radial-gradient(ellipse at 50% 20%,#39303d,#15131a 72%)}
+#game{position:relative;width:min(100vw,56.25vh);height:min(100dvh,177.78vw);max-width:520px;max-height:920px;overflow:hidden;background:#26212a;box-shadow:0 0 60px #0009}
+canvas{width:100%;height:100%;display:block}
+.overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:26px;background:linear-gradient(#17131b9c,#17131bdc);z-index:5}
+.hidden{display:none!important}
+h1{font-size:clamp(32px,8vw,48px);line-height:1.02;margin:0 0 10px;color:#ffdf9a;text-shadow:0 4px 0 #744b32,0 8px 25px #000;font-weight:1000;letter-spacing:.3px}
+.subtitle{font-size:14px;color:#f6e6cc;max-width:300px;line-height:1.5;margin:4px 0 22px}
+button{border:0;border-radius:16px;padding:14px 24px;font-weight:900;font-size:17px;color:#2b1b20;background:linear-gradient(#ffe3a2,#e6a84e);box-shadow:0 5px 0 #8a4c32,0 10px 22px #0007;cursor:pointer}
+button:active{transform:translateY(3px);box-shadow:0 2px 0 #8a4c32}
+.small{font-size:11px;opacity:.75;margin-top:15px;line-height:1.5;max-width:300px}
+.badge{border:1px solid #f3c87877;border-radius:999px;padding:7px 13px;color:#ffe4ad;font-size:11px;font-weight:800;letter-spacing:1.5px;margin-bottom:15px}
+.hud{position:absolute;top:0;left:0;right:0;z-index:2;padding:14px 15px;display:flex;justify-content:space-between;align-items:flex-start;pointer-events:none}
+.hudbox{background:#17131bcc;border:1px solid #f3c87844;border-radius:12px;padding:7px 10px;min-width:84px;backdrop-filter:blur(5px)}
+.label{font-size:9px;letter-spacing:1.2px;color:#e9c995;text-transform:uppercase}.value{font-size:20px;font-weight:950;line-height:1.2}
+#warning{position:absolute;z-index:3;top:16%;left:50%;transform:translateX(-50%);background:#b7483de8;border:2px solid #ffb5a0;border-radius:12px;padding:9px 13px;font-weight:950;font-size:13px;letter-spacing:.5px;box-shadow:0 5px 25px #0008;white-space:nowrap;opacity:0;transition:opacity .12s}
+#hint{position:absolute;z-index:2;bottom:16px;left:12px;right:12px;text-align:center;background:#17131bc9;border:1px solid #f3c87844;border-radius:12px;padding:10px;font-size:12px;line-height:1.4;pointer-events:none}
+#action{position:absolute;z-index:4;inset:0;border:0;background:transparent;box-shadow:none;border-radius:0;padding:0;color:transparent}
+#action:active{transform:none}
+@media(min-width:600px){#game{border:1px solid #5c4a5a;border-radius:18px} }
+</style>
+</head>
+<body>
+<div id="game">
+ <canvas id="scene" width="600" height="1000" aria-label="Игра Котик Куколдик"></canvas>
+ <div class="hud hidden" id="hud">
+  <div class="hudbox"><div class="label">Очки</div><div class="value" id="score">0</div></div>
+  <div class="hudbox" style="text-align:right"><div class="label">До рассвета</div><div class="value" id="time">60</div></div>
+ </div>
+ <div id="warning">ТИШЕ… ОНИ ПРИСЛУШАЛИСЬ!</div>
+ <div id="hint" class="hidden">Следи за комнатой. Когда они притихнут — <b>нажми на экран</b>, чтобы прикрыть дверь!</div>
+ <button id="action" class="hidden" aria-label="Прикрыть дверь"></button>
+ <section class="overlay" id="start">
+  <div class="badge">НЕ ШУМИ. НЕ ПОПАДИСЬ.</div>
+  <h1>Котик<br>Куколдик</h1>
+  <div class="subtitle">Он просто хотел тихонько вернуться домой…<br>Но этой ночью лучше быть осторожнее.</div>
+  <button id="play">Начать игру</button>
+  <div class="small">Аркадная мини-игра · Нажимай на экран, когда коты начинают прислушиваться.</div>
+ </section>
+ <section class="overlay hidden" id="end">
+  <div class="badge" id="endbadge">ИГРА ОКОНЧЕНА</div>
+  <h1 id="endtitle">Тебя заметили!</h1>
+  <div class="subtitle" id="endtext">Кажется, скрип двери был слишком громким…</div>
+  <button id="again">Попробовать ещё раз</button>
+  <div class="small">Подсказка: перед тем как они повернут головы, звук становится тише.</div>
+ </section>
+</div>
+<script>
+const canvas=document.getElementById('scene'),ctx=canvas.getContext('2d');
+const $=id=>document.getElementById(id);
+let playing=false,score=0,timeLeft=60,last=0,phase='idle',phaseUntil=0,warning=false,glance=false,closedUntil=0,gameStart=0;
+const W=600,H=1000;
+function rr(x,y,w,h,r,fill,stroke=null,lw=1){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fillStyle=fill;ctx.fill();if(stroke){ctx.lineWidth=lw;ctx.strokeStyle=stroke;ctx.stroke()}}
+function grad(x,y,w,h,a,b){let g=ctx.createLinearGradient(x,y,x+w,y+h);g.addColorStop(0,a);g.addColorStop(1,b);return g}
+function ellipse(x,y,rx,ry,fill,stroke=null,lw=1){ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2);ctx.fillStyle=fill;ctx.fill();if(stroke){ctx.lineWidth=lw;ctx.strokeStyle=stroke;ctx.stroke()}}
+function line(x1,y1,x2,y2,color,width=2){ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.stroke()}
+function text(t,x,y,size,color,weight='700',align='center'){ctx.font=`${weight} ${size}px system-ui`;ctx.fillStyle=color;ctx.textAlign=align;ctx.fillText(t,x,y)}
+function cat(x,y,s,type,pose='sit'){
+ ctx.save();ctx.translate(x,y);ctx.scale(s,s);
+ let fur=type==='A1'?'#d98743':type==='A2'?'#eee0c8':'#22212a';
+ let shade=type==='A1'?'#a9572f':type==='A2'?'#c7b6a2':'#09090e';
+ // tail
+ ctx.lineCap='round';ctx.lineJoin='round';
+ if(type==='A1'){ctx.beginPath();ctx.moveTo(25,42);ctx.bezierCurveTo(72,40,66,83,42,80);ctx.strokeStyle=fur;ctx.lineWidth=15;ctx.stroke();ctx.strokeStyle=shade;ctx.lineWidth=2;ctx.stroke()}
+ else if(type==='A3'){ctx.beginPath();ctx.moveTo(25,40);ctx.bezierCurveTo(75,50,68,5,88,20);ctx.strokeStyle=fur;ctx.lineWidth=11;ctx.stroke()}
+ // body
+ ellipse(0,38,type==='A1'?34:29,39,grad(-25,0,60,85,fur,shade),'#19141a',2);
+ if(type==='A1')ellipse(0,44,20,23,'#f6d7a5');
+ if(type==='A2'){ellipse(-13,40,13,20,'#d77c57');ellipse(10,38,15,21,'#7d8f6d');ellipse(1,47,17,13,'#f7e8d1')}
+ // feet
+ ellipse(-16,67,13,8,fur,'#19141a',1.5);ellipse(15,67,13,8,fur,'#19141a',1.5);
+ // ears
+ ctx.beginPath();ctx.moveTo(-28,-13);ctx.lineTo(-24,-47);ctx.lineTo(-3,-26);ctx.closePath();ctx.fillStyle=fur;ctx.fill();ctx.strokeStyle='#19141a';ctx.lineWidth=2;ctx.stroke();
+ ctx.beginPath();ctx.moveTo(5,-26);ctx.lineTo(26,-48);ctx.lineTo(30,-11);ctx.closePath();ctx.fillStyle=fur;ctx.fill();ctx.stroke();
+ if(type==='A3'){// torn left ear
+  ctx.beginPath();ctx.moveTo(-25,-43);ctx.lineTo(-17,-34);ctx.lineTo(-22,-30);ctx.fillStyle='#17131b';ctx.fill();
+ }
+ // head
+ ellipse(0,-7,34,31,grad(-30,-30,60,60,fur,shade),'#19141a',2);
+ // stripes
+ if(type==='A1'){line(-14,-29,-9,-20,'#f4d49d',5);line(0,-34,0,-22,'#f4d49d',5);line(13,-29,9,-20,'#f4d49d',5)}
+ // eyes
+ let eyeY= -8;
+ ellipse(-13,eyeY,7,9,type==='A3'?'#e9c86f':'#b8d69a','#17131b',1);
+ ellipse(13,eyeY,7,9,type==='A3'?'#e9c86f':'#b8d69a','#17131b',1);
+ ellipse(-12,eyeY,2.4,6,'#17131b');ellipse(14,eyeY,2.4,6,'#17131b');
+ // muzzle and nose
+ ellipse(-5,5,10,7,type==='A1'?'#f6dfbd':type==='A2'?'#fff1dd':'#5c525c');
+ ellipse(7,5,10,7,type==='A1'?'#f6dfbd':type==='A2'?'#fff1dd':'#5c525c');
+ ctx.beginPath();ctx.moveTo(-3,1);ctx.lineTo(3,1);ctx.lineTo(0,5);ctx.closePath();ctx.fillStyle=type==='A3'?'#d78b91':'#d98b94';ctx.fill();
+ line(0,6,0,11,'#30222a',1.5);line(0,11,-5,13,'#30222a',1.5);line(0,11,5,13,'#30222a',1.5);
+ // whiskers
+ for(let i=0;i<2;i++){line(-9,7+i*4,-30,4+i*5,'#d9c6ad',1);line(9,7+i*4,30,4+i*5,'#d9c6ad',1)}
+ if(type==='A3'){// cheek scar
+ line(17,-1,27,8,'#b7a0a2',2);line(18,2,25,10,'#b7a0a2',1)}
+ if(type==='A1'){// chest patch visible
+ ellipse(0,31,12,15,'#f5d9a7')}
+ if(type==='A2'){// delicate lashes / collar
+ line(-20,-13,-24,-18,'#30222a',1.5);line(20,-13,24,-18,'#30222a',1.5);rr(-19,23,38,5,2,'#ad4b61');ellipse(0,28,4,4,'#f3c878')}
+ if(type==='A3'){// smug brows
+ line(-21,-20,-8,-22,'#09090e',3);line(8,-22,21,-19,'#09090e',3)}
+ ctx.restore();
+}
+function background(){
+ // wall gradient
+ ctx.fillStyle=grad(0,0,W,H,'#55434b','#211e2b');ctx.fillRect(0,0,W,H);
+ // ceiling and walls corridor perspective
+ ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(600,0);ctx.lineTo(520,570);ctx.lineTo(80,570);ctx.closePath();ctx.fillStyle='#3c303b';ctx.fill();
+ ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(80,570);ctx.lineTo(80,1000);ctx.lineTo(0,1000);ctx.closePath();ctx.fillStyle='#302733';ctx.fill();
+ ctx.beginPath();ctx.moveTo(600,0);ctx.lineTo(520,570);ctx.lineTo(520,1000);ctx.lineTo(600,1000);ctx.closePath();ctx.fillStyle='#29232f';ctx.fill();
+ // floor perspective boards
+ ctx.beginPath();ctx.moveTo(80,570);ctx.lineTo(520,570);ctx.lineTo(600,1000);ctx.lineTo(0,1000);ctx.closePath();ctx.fillStyle=grad(0,570,0,430,'#5d4141','#211d29');ctx.fill();
+ for(let i=0;i<8;i++){let y=590+i*i*6;line(80-(y-570)*.18,y,520+(y-570)*.18,y,'#a16b5c33',2)}
+ for(let x=-100;x<800;x+=95)line(300,570,x,1000,'#1a1721aa',2);
+ // side open doors
+ for(const d of [{x:65,y:280,w:100,h:300},{x:435,y:250,w:95,h:330}]){
+  rr(d.x,d.y,d.w,d.h,3,'#1d1924','#8e6b60',5);rr(d.x+8,d.y+8,d.w-16,d.h-16,2,'#4c3440','#a77b63',2);
+  rr(d.x+18,d.y+18,d.w-36,d.h-36,2,'#352532','#9c705e',1);
+  ellipse(d.x+d.w-18,d.y+150,4,5,'#e4b36c');
+ }
+ // warm pool of light from entrance
+ let light=ctx.createRadialGradient(300,110,15,300,260,420);light.addColorStop(0,'#f4c67a33');light.addColorStop(1,'#f4c67a00');ctx.fillStyle=light;ctx.fillRect(0,0,600,680);
+ // ceiling light
+ ellipse(300,55,45,11,'#e5c28a');ellipse(300,55,24,6,'#fff0b5');
+ // entrance door behind
+ rr(218,75,164,275,5,'#49313a','#b98b68',5);rr(230,87,140,248,3,'#5d3b42','#8f6555',2);rr(244,102,112,105,2,'#49313a','#9b705c',2);rr(244,220,112,98,2,'#49313a','#9b705c',2);ellipse(354,212,5,7,'#e6bd72');
+ // frame / picture and hallway clutter
+ rr(20,140,75,98,3,'#241d27','#bd926a',5);rr(28,148,59,82,2,'#776052');cat(57,198,.42,'A1');cat(69,199,.36,'A2');
+ // rug
+ ctx.beginPath();ctx.moveTo(200,720);ctx.lineTo(400,720);ctx.lineTo(470,930);ctx.lineTo(130,930);ctx.closePath();ctx.fillStyle='#49303b';ctx.fill();ctx.strokeStyle='#c39470';ctx.lineWidth=3;ctx.stroke();
+ for(let i=0;i<5;i++)line(175+i*12,755,145+i*15,900,'#c3947040',2);
+}
+function room(){
+ // room visible through doorway
+ rr(110,220,380,470,4,'#16151d','#a37c5e',7);
+ // interior wall
+ ctx.fillStyle=grad(110,220,380,470,'#57424a','#2c2635');ctx.fillRect(117,227,366,455);
+ // window
+ rr(145,260,105,130,2,'#a8a9b6','#d6b38a',6);ctx.fillStyle='#596b7b';ctx.fillRect(153,268,89,114);
+ ellipse(190,295,18,18,'#f6dba0');ctx.fillStyle='#657486';ctx.fillRect(153,315,89,67);line(197,268,197,382,'#e6c99d',3);line(153,325,242,325,'#e6c99d',3);
+ // curtains
+ ctx.beginPath();ctx.moveTo(137,252);ctx.quadraticCurveTo(155,315,139,397);ctx.lineTo(151,397);ctx.lineTo(157,260);ctx.closePath();ctx.fillStyle='#8d4c59';ctx.fill();
+ ctx.beginPath();ctx.moveTo(251,252);ctx.quadraticCurveTo(234,315,252,397);ctx.lineTo(239,397);ctx.lineTo(232,260);ctx.closePath();ctx.fillStyle='#8d4c59';ctx.fill();
+ // computer desk
+ rr(274,350,160,12,3,'#6d4a3c');rr(290,296,86,53,3,'#171922','#9b8274',3);rr(297,303,72,39,2,'#4d6a70');line(333,349,333,360,'#9b8274',5);rr(313,360,42,5,2,'#8b6b58');
+ // screen glow
+ text('♡',333,331,20,'#a6d5ce','700');
+ // framed photo
+ rr(386,302,36,46,2,'#b58c59');rr(390,306,28,37,1,'#d4bca0');cat(399,331,.18,'A1');cat(410,331,.17,'A2');
+ // candles
+ for(const c of [[270,430],[447,435],[260,510]]){rr(c[0],c[1],10,31,2,'#f0d8ad');ellipse(c[0]+5,c[1],3,7,'#ffc45d');ellipse(c[0]+5,c[1]-2,2,4,'#fff2a5')}
+ // sofa / coffee table
+ rr(275,472,165,84,16,'#73505a','#c18b76',3);rr(287,484,142,48,10,'#a16c72');rr(263,540,190,15,6,'#4d3039');
+ rr(300,566,128,12,3,'#815d4a');line(312,578,306,603,'#63463d',5);line(417,578,424,603,'#63463d',5);
+ // milk bottle and glasses
+ rr(319,531,24,35,5,'#f4ead2','#b9a6a1',2);rr(325,523,12,10,2,'#f4ead2');rr(327,519,8,7,2,'#b4a8a1');
+ rr(353,544,15,22,3,'#c7e2e4aa','#e8e0cf',2);rr(375,544,15,22,3,'#c7e2e4aa','#e8e0cf',2);line(355,552,366,552,'#fff6dc',3);line(377,552,388,552,'#fff6dc',3);
+ // bed
+ rr(138,460,110,170,12,'#4b3547','#c29a8c',4);rr(145,470,96,90,8,'#d6b6b2');rr(145,562,96,60,4,'#8e5b70');
+ rr(151,475,38,35,8,'#f0dfc8');rr(195,475,38,35,8,'#f0dfc8');
+ // characters on bed, affectionate but non-explicit
+ cat(178,530,.8,'A2');cat(215,520,.78,'A3');
+ // warm candle glow
+ let g=ctx.createRadialGradient(350,450,5,350,450,230);g.addColorStop(0,'#ffc16b22');g.addColorStop(1,'#ffc16b00');ctx.fillStyle=g;ctx.fillRect(117,227,366,455);
+}
+function door(){
+ // open door hinged on right, perspective; mostly open, hides some room when closed
+ if(phase==='closed'){
+  ctx.beginPath();ctx.moveTo(130,220);ctx.lineTo(455,255);ctx.lineTo(455,680);ctx.lineTo(130,690);ctx.closePath();ctx.fillStyle=grad(130,220,325,470,'#62403f','#30242f');ctx.fill();ctx.strokeStyle='#b58a66';ctx.lineWidth=7;ctx.stroke();
+  rr(165,260,245,175,4,'#51343a','#8d6553',3);rr(165,460,245,185,4,'#51343a','#8d6553',3);ellipse(420,465,7,10,'#e6bb70');
+ }else{
+  // narrow open door edge
+  ctx.beginPath();ctx.moveTo(430,222);ctx.lineTo(482,245);ctx.lineTo(482,680);ctx.lineTo(430,695);ctx.closePath();ctx.fillStyle=grad(430,222,52,470,'#5b393b','#2a222c');ctx.fill();ctx.strokeStyle='#b58a66';ctx.lineWidth=5;ctx.stroke();
+  line(442,260,470,270,'#9a705d',3);line(442,630,470,638,'#9a705d',3);ellipse(447,470,5,7,'#d8ac69');
+ }
+}
+function drawA1(){
+ // foreground protagonist peeking around the left side of doorway
+ if(phase==='closed')return;
+ cat(92,650,1.18,'A1');
+ // little hat hanging from a hook on wall
+ rr(30,305,42,7,3,'#b88b60');ctx.beginPath();ctx.ellipse(53,294,29,9,0,0,Math.PI*2);ctx.fillStyle='#312b34';ctx.fill();rr(31,275,44,20,5,'#39313b','#b68a61',2);rr(28,290,50,5,2,'#b68a61');
+ // protagonist's paw on door edge
+ ellipse(428,470,12,10,'#e3a45e','#75442e',2);
+}
+function drawSplash(){
+ background();
+ // spotlight on hero
+ let g=ctx.createRadialGradient(300,470,10,300,470,280);g.addColorStop(0,'#e6a65a35');g.addColorStop(1,'#e6a65a00');ctx.fillStyle=g;ctx.fillRect(0,0,600,1000);
+ cat(300,590,2.15,'A1');
+ // hat
+ ctx.beginPath();ctx.ellipse(300,486,72,18,0,0,Math.PI*2);ctx.fillStyle='#332b37';ctx.fill();rr(250,455,100,36,8,'#332b37','#c59b68',3);rr(246,482,108,8,4,'#c59b68');
+ // little stars
+ for(const [x,y,r] of [[100,370,3],[470,350,4],[130,650,3],[475,690,2],[420,250,2]]){ellipse(x,y,r,r,'#ffe0a0');}
+}
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ if(!playing){drawSplash();return}
+ background();
+ room();
+ // dim overlay creates dramatic night corridor
+ ctx.fillStyle='#100d1a44';ctx.fillRect(0,0,W,H);
+ door();
+ drawA1();
+ // tiny sound ripples while they are active
+ if(phase==='active'){
+  ctx.strokeStyle='#f4c87888';ctx.lineWidth=3;
+  ctx.beginPath();ctx.arc(205,510,52, -.8,.8);ctx.stroke();ctx.beginPath();ctx.arc(205,510,68,-.8,.8);ctx.stroke();
+ }
+ if(phase==='warning'){
+  // room characters looking toward door: small eye-glints / suspicion cue
+  ellipse(174,514,36,28,'#f5d3b1aa');ellipse(213,504,36,28,'#f5d3b1aa');
+ }
+ if(phase==='caught'){
+  ctx.fillStyle='#120d18aa';ctx.fillRect(0,0,W,H);
+  text('ОЙ…',300,480,54,'#ffdf9a','1000');
+ }
+}
+function startGame(){
+ score=0;timeLeft=60;playing=true;phase='active';phaseUntil=performance.now()+random(2400,4200);gameStart=performance.now();
+ $('start').classList.add('hidden');$('end').classList.add('hidden');$('hud').classList.remove('hidden');$('hint').classList.remove('hidden');$('action').classList.remove('hidden');$('warning').style.opacity=0;
+ last=performance.now();requestAnimationFrame(loop);
+}
+function random(a,b){return a+Math.random()*(b-a)}
+function loop(now){
+ if(!playing)return;
+ let dt=(now-last)/1000;last=now;
+ timeLeft=Math.max(0,60-(now-gameStart)/1000);
+ $('time').textContent=Math.ceil(timeLeft);$('score').textContent=score;
+ if(timeLeft<=0){finish(true);return}
+ if(now>phaseUntil){
+  if(phase==='active'){
+   phase='warning';phaseUntil=now+random(800,1500);warning=true;
+   $('warning').textContent='ТИШЕ… ОНИ ПРИСЛУШАЛИСЬ!';$('warning').style.opacity=1;
+   if(navigator.vibrate)navigator.vibrate(40);
+  }else if(phase==='warning'){
+   phase='caught';warning=false;$('warning').style.opacity=0;draw();finish(false);return;
+  }else if(phase==='closed'){
+   phase='active';phaseUntil=now+random(1800,3900);$('warning').style.opacity=0;
+  }
+ }
+ draw();requestAnimationFrame(loop);
+}
+function closeDoor(){
+ if(!playing)return;
+ if(phase==='warning'){
+  score+=10;phase='closed';phaseUntil=performance.now()+random(650,1150);$('warning').style.opacity=0;
+  $('hint').innerHTML='Отлично! Они ничего не заметили. <b>Снова наблюдай за комнатой…</b>';
+  setTimeout(()=>{if(playing)$('hint').innerHTML='Следи за комнатой. Когда они притихнут — <b>нажми на экран</b>, чтобы прикрыть дверь!'},1200);
+ }else if(phase==='active'){
+  // premature tapping does not end game, but loses a few points
+  score=Math.max(0,score-2);
+  $('hint').innerHTML='Рано! Дождись, когда они притихнут.';
+  setTimeout(()=>{if(playing)$('hint').innerHTML='Следи за комнатой. Когда они притихнут — <b>нажми на экран</b>, чтобы прикрыть дверь!'},850);
+ }
+}
+function finish(win){
+ playing=false;$('action').classList.add('hidden');$('hud').classList.add('hidden');$('hint').classList.add('hidden');$('warning').style.opacity=0;
+ $('end').classList.remove('hidden');
+ if(win){$('endbadge').textContent='ТЫ ДОЖДАЛСЯ РАССВЕТА';$('endtitle').textContent='Никто не заметил!';$('endtext').textContent=`Ты продержался до утра и набрал ${score} очков. Котик Куколдик тихо ушёл спать.`}
+ else{$('endbadge').textContent='ТЕБЯ ЗАМЕТИЛИ';$('endtitle').textContent='Ой, попался!';$('endtext').textContent=`Кошечка и кот повернули головы к двери. Твой результат: ${score} очков. Попробуй ещё раз!`}
+ draw();
+}
+$('play').addEventListener('click',startGame);$('again').addEventListener('click',startGame);
+$('action').addEventListener('pointerdown',e=>{e.preventDefault();closeDoor()});
+document.addEventListener('keydown',e=>{if(e.code==='Space'||e.code==='Enter'){if(!playing)startGame();else closeDoor()}});
+draw();
+</script>
+</body></html>
